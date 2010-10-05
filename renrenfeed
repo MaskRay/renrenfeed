@@ -1,0 +1,45 @@
+#!/usr/bin/perl
+use 5.010;
+use strict;
+use HTML::TreeBuilder;
+use HTTP::Cookies;
+use LWP;
+use XML::RSS;
+
+my($email, $password, $rssfeed, $delay) = @ARGV;
+die(<<EOF) if @ARGV < 3;
+Usage:
+    $0 email password file [delay]
+EOF
+
+my $browser = LWP::UserAgent->new(cookie_jar => HTTP::Cookies->new());
+my $resp = $browser->post('http://www.renren.com/PLogin.do', [email => $email, password => $password]);
+die "login failed\n" if $resp->code ne 302;
+
+$delay //= 60*60;
+
+for (; ; sleep $delay) {
+    my $rss = XML::RSS->new(version => '2.0', encode_output => 0);
+    $rss->channel(
+	      title => '人人网新鲜事',
+	      link => '/tmp/rss',
+	      description => '人人网新鲜事',
+	      language => 'zh-CN',
+	     );
+    my $response = $browser->get('http://www.renren.com/home');
+
+    my $tree = HTML::TreeBuilder->new_from_content($response->content);
+    for ($tree->look_down(_tag => 'h3', style => undef)) {
+	my $child = ($_->find_by_tag_name('a'))[-1];
+	$rss->add_item(
+		       title => $_->as_text(),
+		       link => $child->attr('href') !~ m{^\Qhttp://www.renren.com/profile.do?\E} ? $child->attr('href') : '',
+		       description =>  $_->right->as_text(),
+		      )
+    }
+    $tree->delete();
+
+    open(my $fh, ">", $rssfeed) or die $!;
+    print $fh $rss->as_string;
+    close $fh;
+}
