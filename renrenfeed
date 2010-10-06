@@ -5,6 +5,7 @@ use HTML::TreeBuilder;
 use HTTP::Cookies;
 use LWP;
 use XML::RSS;
+use Encode;
 
 my($email, $password, $rssfeed, $delay) = @ARGV;
 die(<<EOF) if @ARGV < 3;
@@ -13,8 +14,8 @@ Usage:
 EOF
 
 my $browser = LWP::UserAgent->new(cookie_jar => HTTP::Cookies->new());
-my $resp = $browser->post('http://www.renren.com/PLogin.do', [email => $email, password => $password]);
-die "login failed\n" if $resp->code ne 302;
+my $response = $browser->post('http://www.renren.com/PLogin.do', [email => $email, password => $password]);
+die "login failed\n" if $response->code ne 302;
 
 $delay //= 60*60;
 
@@ -28,13 +29,13 @@ for (; ; sleep $delay) {
 	     );
     my $response = $browser->get('http://www.renren.com/home');
 
-    my $tree = HTML::TreeBuilder->new_from_content($response->content);
+    my $tree = HTML::TreeBuilder->new_from_content($response->decoded_content);
     for ($tree->look_down(_tag => 'h3', style => undef)) {
 	my $child = ($_->find_by_tag_name('a'))[-1];
 	$rss->add_item(
-		       title => $_->as_text(),
+		       title => encode_utf8(decode_utf8($_->as_trimmed_text())),
 		       link => $child->attr('href') !~ m{^\Qhttp://www.renren.com/profile.do?\E} ? $child->attr('href') : '',
-		       description =>  $_->right->as_text(),
+		       description => encode_utf8(decode_utf8($_->right->as_trimmed_text())),
 		      )
     }
     $tree->delete();
